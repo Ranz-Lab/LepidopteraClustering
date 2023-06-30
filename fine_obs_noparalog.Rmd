@@ -1,0 +1,391 @@
+---
+title: "allObsClusterAnalysis_noParalog"
+author: "Ashlyn Kimura"
+date: "5/19/2023"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Goal
+
+Analyze the observed monarch expression data to generate clustering information for all chromosome/bias/threshold combinations
+
+
+## 0. Load packages and Data
+
+```{r load_packages}
+library(readxl)   #read input excel file
+library(tibble)   #add rows to dataframe and keep data types
+library(xlsx)     #write output excel files
+```
+
+```{r program_runtime}
+start_time <- Sys.time()
+```
+
+
+```{r global_variables}
+#Number of clusters/number of genes that are in clusters per chr/bias/thr
+summaryFile <- "allObsClustersSumary_noParalog.xlsx"
+
+#Gene ID/Cluster ID for each chr/bias/thr
+clusterCompositionFile <- "allObsClustersGenesComposition_noParalog.xlsx"
+
+#Project specific global variables for analysis
+bias <- c("L", "P", "M", "F")
+threshold <- c(1, 5, 10)
+```
+
+```{r load_data}
+allchrdata <- read_excel("monarchdata.xlsx", sheet = 2, range = "A5:F14690")
+```
+
+
+```{r remove_paralogs}
+# read in the data from a file
+paralogdata <- read_excel("paralogs_data.xlsx", sheet = 1)
+
+# Create a new data frame to store the filtered data
+filtered_df <- data.frame()
+
+# Iterate over each unique combination of orthogroup, chromosome, and bias
+combinations <- unique(paralogdata[, c("Orthogroup", "Chromosome", "Bias")])
+
+for (i in 1:nrow(combinations)) {
+  # Get the subset of data that matches the current combination
+  subset_data <- subset(paralogdata, 
+                        Orthogroup == (as.vector(combinations[i,]))[1] & 
+                        Chromosome == (as.vector(combinations[i,]))[2] & 
+                        Bias == (as.vector(combinations[i,]))[3])
+  
+  # Randomly select one row from the subset and add it to the filtered data frame
+  filtered_df <- rbind(filtered_df, subset_data[sample(nrow(subset_data), 1), ])
+}
+```
+
+```{r get_noparalogdata}
+#allchrdata without any of the genes that are in the paralog data set
+paraloggenes <- as.vector(paralogdata$Gene)
+noparalog_df <- subset(allchrdata, !Feature %in% paraloggenes)
+
+#paralog genes that are being kept
+keep_paraloggenes <- as.vector(filtered_df$Gene)
+keepparalogs_df <- allchrdata[allchrdata$Feature %in% keep_paraloggenes, ]
+
+#final dataset keeping one random gene if orthogroup, chr, and bias are the same
+noparalogdata <- rbind(noparalog_df, keepparalogs_df)
+noparalogdata <- noparalogdata[order(noparalogdata$Rank),]
+```
+
+## 1. Set up Output Summary and Cluster Size data frames
+
+```{r setup_dataframes}
+#summaryFile sheet 1
+datasummary <- data.frame(Chromosome = character(),
+                          Bias = character(),
+                          Threshold = numeric(),
+                          Bias_dist_Mean = numeric(),
+                          Bias_dist_Median = numeric(),
+                          Clust_Number = numeric(),
+                          Clust_Sz_Max = numeric(),
+                          Clust_Sz_Mean = numeric(),
+                          Clustered_genes = numeric())
+
+#summaryFile sheet 2
+ClusterSizes <- data.frame(Chromosome = character(),
+                           Bias = character(),
+                           Threshold = numeric(),
+                           Sz_2 = numeric(), Sz_3 = numeric(), Sz_4 = numeric(), 
+                           Sz_5 = numeric(), Sz_6 = numeric(), Sz_7 = numeric(), 
+                           Sz_8 = numeric(), Sz_9 = numeric(), Sz_10 = numeric(),
+                           Sz_11 = numeric(), Sz_12 = numeric(), Sz_13 = numeric(), 
+                           Sz_14 = numeric(), Sz_15 = numeric(), Sz_16 = numeric(), 
+                           Sz_17 = numeric(), Sz_18 = numeric(), Sz_19 = numeric(), 
+                           Sz_20 = numeric(), Sz_21 = numeric(), Sz_22 = numeric(), 
+                           Sz_23 = numeric(), Sz_24 = numeric(), Sz_25 = numeric(),
+                           Sz_26 = numeric(), Sz_27 = numeric(), Sz_28 = numeric(), 
+                           Sz_29 = numeric(), Sz_30 = numeric(), Sz_31 = numeric(), 
+                           Sz_32 = numeric(), Sz_33 = numeric(), Sz_34 = numeric(), 
+                           Sz_35 = numeric(), Sz_36 = numeric(), Sz_37 = numeric(), 
+                           Sz_38 = numeric(), Sz_39 = numeric(), Sz_40 = numeric(),
+                           Sz_41 = numeric(), Sz_42 = numeric(), Sz_43 = numeric(), 
+                           Sz_44 = numeric(), Sz_45 = numeric(), Sz_46 = numeric(), 
+                           Sz_47 = numeric(), Sz_48 = numeric(), Sz_49 = numeric(), 
+                           Sz_50 = numeric(), Sz_51 = numeric(), Sz_52 = numeric(), 
+                           Sz_53 = numeric(), Sz_54 = numeric(), Sz_55 = numeric(),
+                           Sz_56 = numeric(), Sz_57 = numeric(), Sz_58 = numeric(), 
+                           Sz_59 = numeric(), Sz_60 = numeric(), Sz_61 = numeric(), 
+                           Sz_62 = numeric(), Sz_63 = numeric(), Sz_64 = numeric(), 
+                           Sz_65 = numeric(), Sz_66 = numeric(), Sz_67 = numeric())
+
+#summaryFile sheet 3
+overallsummary <- data.frame(Bias = character(),
+                             Threshold = numeric(),
+                             Clust_Number = numeric(),
+                             Clust_Sz_Max = numeric(),
+                             Clustered_genes = numeric())
+
+#clusterCompositionFile template dataframe
+clusterComposition <- data.frame(chromosome = character(),
+                                 bias = character(),
+                                 cluster_id = numeric(),
+                                 cluster_size = numeric(),
+                                 gene_id = character())
+
+#clusterCompositionFile sheets 1-3
+clusterCompositionList <- list()
+for (a in 1:3) {
+  clusterCompositionList[[a]] <- clusterComposition
+}
+```
+
+
+## 2. Generate Cluster Data
+
+```{r populate_dataframes}
+#Common variables for all chromosomes
+chrBiasRowNamesList <- character()
+clust_id <- c(1, 1, 1)
+
+#Loop over all chromosomes
+for (name_chr in unique(noparalogdata$Chromosome)) {
+  #Extract data for the current chromosome of interest, 
+  # add row numbers, get chromosome name
+  chrdata <- noparalogdata[noparalogdata$Chromosome == name_chr,]
+  chrdata <- rownames_to_column(chrdata, "Row")
+  chrdata <- transform(chrdata, Row = as.numeric(Row))
+  chr <- chrdata$Chromosome[1]
+  
+  
+  #Loop over all biases
+  for (b in 1:4) {
+    #Local Variables for storing data from each chr/bias combination
+    ccountList <- c(0, 0, 0)
+    genesDfList <- list()
+    clusterDfList <- list()
+    
+    #Set up lists so they contain a dataframe for each threshold
+    for (t1 in 1:3) {
+      genesDfList[[t1]] <- data.frame()
+      clusterDfList[[t1]] <- data.frame()
+    }
+    
+    #Extract data for the current bias of interest
+    chrbias <- chrdata[which(chrdata$Bias == bias[b]),]
+    
+    
+    #Check to ensure there are genes in chrbias to loop over
+    if (nrow(chrbias) > 1) {
+      
+      #Loop over each gene from the current bias of interest
+      for(j in 1:nrow(chrbias)) {
+        #Logical lists keep track of clustered adjacent genes
+        upgeneList <- c(FALSE, FALSE, FALSE)
+        downgeneList <- c(FALSE, FALSE, FALSE)
+        
+        #Loop over each threshold
+        for (k in threshold) {
+          pos <- match(k, threshold)
+          
+          #Subset adjacent genes to the gene of interest to determine if they
+          #   are of the same bias
+          uppos <- 1
+          npos <- chrbias$Row[j]
+          downpos <- nrow(chrdata)
+          
+          #Determine rows to subset
+          if ((npos - k) - 1 >= 1) {
+            uppos <- (npos - k) - 1
+          }
+          
+          if ((npos + k) + 1 <= downpos) {
+            downpos <- (npos + k) + 1
+          }
+          
+          #Subset and add to list of clustered genes if in a cluster
+          if (npos > 1) {
+            if (bias[b] %in% chrdata[uppos:(npos-1),]$Bias) {
+              genesDfList[[pos]] <- rbind(genesDfList[[pos]], chrbias[chrbias$Row == (chrbias$Row[j]),])
+              upgeneList[pos] <- TRUE
+            }
+          }
+          
+          if (npos < nrow(chrdata)) {
+            if (bias[b] %in% chrdata[(npos+1):downpos,]$Bias) {
+              genesDfList[[pos]] <- rbind(genesDfList[[pos]], chrbias[chrbias$Row == (chrbias$Row[j]),])
+              downgeneList[pos] <- TRUE
+            }
+          }
+          
+          #Is gene model single or in a bias cluster
+          if ((chrbias$Rank[j]) %in% genesDfList[[pos]]$Rank == TRUE){
+            if (upgeneList[pos] == FALSE && downgeneList[pos] == TRUE) {
+              clusterDfList[[pos]] <- rbind(clusterDfList[[pos]], c(1))
+              ccountList[pos] <- ccountList[pos] + 1
+              if (ccountList[pos] == 1) {
+                colnames(clusterDfList[[pos]]) <- c("Size")
+              }
+            }
+            if (upgeneList[pos] == TRUE) {
+              clusterDfList[[pos]]$Size[ccountList[pos]] <- 
+                clusterDfList[[pos]]$Size[ccountList[pos]] + 1
+            }
+          }
+        } #threshold
+        upgeneList <- c(FALSE, FALSE, FALSE)
+        downgeneList <- c(FALSE, FALSE, FALSE)
+      } #gene of interst
+    } 
+    
+    #make sure none of the genes in clusters are repeated 
+    for (n in 1:3) {
+      genesDfList[[n]] <- unique(genesDfList[[n]])
+    }
+    
+    #to write genes in clusters and detailed cluster size information loop for threshold
+    for (thr in threshold) {
+      #variable for indexing threshold
+      pos2 <- match(thr, threshold)
+      
+      #compile a list of the distances between the genes of the bias of interest
+      biasranklist <- c(chrbias$Row)
+      rankdifflist <- diff(biasranklist) - 1
+      
+      meanbiasdist <- 0
+      medianbiasdist <- 0
+      
+      if (length(biasranklist) > 1) {
+        meanbiasdist <- mean(rankdifflist)
+        medianbiasdist <- median(rankdifflist)
+      }
+      
+      #generate cluster statistics
+      maxclustersize <- 0
+      meanclustersize <- 0
+      if (nrow(clusterDfList[[pos2]]) > 0) { 
+        maxclustersize <- max(clusterDfList[[pos2]]$Size)
+        meanclustersize <- mean(clusterDfList[[pos2]]$Size)
+      }
+      
+      #add number of clusters and clustered genes to summary data frame
+      datasummary <- add_row(datasummary, 
+                             Chromosome = chr, Bias = bias[b], Threshold = thr, 
+                             Bias_dist_Mean = meanbiasdist,
+                             Bias_dist_Median = medianbiasdist,
+                             Clust_Number = ccountList[pos2],
+                             Clust_Sz_Max = maxclustersize,
+                             Clust_Sz_Mean = meanclustersize,
+                             Clustered_genes = nrow(genesDfList[[pos2]]))
+      
+      ##add detailed cluster size information to the cluster size data frame
+      currentClusterSizeRow <- c(chr, bias[b], thr)
+      sizes <- rep(0, 66)
+      if (nrow(clusterDfList[[pos2]]) != 0) {
+        for (row in clusterDfList[[pos2]]$Size) {
+          sizes[row - 1] <- sizes[row - 1] + 1
+        }
+      }
+      currentClusterSizeRow <- c(currentClusterSizeRow, sizes)
+      ClusterSizes[nrow(ClusterSizes) + 1,] = currentClusterSizeRow
+      
+      ##add gene composition information to the appropriate output data frame
+      #variables used to determine where within each cluster and among the clusters a gene is
+      rowpos <- 1
+      genepos <- 1
+      
+      #output variables that gives each gene cluster an id
+      g_id <- ""
+      clust_size <- 0
+      
+      #ensure that the genes in clusters data frame is not empty
+      if (nrow(genesDfList[[pos2]]) > 0) {
+        
+        #add each gene to the correct gene cluster composition data frame
+        for (gene in 1:nrow(genesDfList[[pos2]])) {
+          g_id <- genesDfList[[pos2]][gene, 6]
+          clust_size <- clusterDfList[[pos2]][rowpos,]
+          
+          #add the gene to the correct data frame and adjust positional parameters as necessary
+          if (genepos < clust_size) {
+            clusterCompositionList[[pos2]][nrow(clusterCompositionList[[pos2]]) + 1,] =
+              c(chr, bias[b], clust_id[pos2], clust_size, g_id)
+            genepos <- genepos + 1
+          } else if (genepos == clust_size) {
+            clusterCompositionList[[pos2]][nrow(clusterCompositionList[[pos2]]) + 1,] =
+              c(chr, bias[b], clust_id[pos2], clust_size, g_id)
+            clust_id[pos2] <- clust_id[pos2] + 1
+            genepos <- 1
+            rowpos <- rowpos + 1
+          }
+        } #end loop over genes in clusters
+      } 
+    } #end loop over thresholds (for writing to output tables)
+  } #end loop over biases
+} #end loop over chromosomes
+
+#convert the relevent cluster size columns to numeric for exporting data
+ClusterSizes[, 3:69] <- sapply(ClusterSizes[, 3:69], as.numeric)
+
+#Generate Bias and Overall statistics and add to the overallsummary table
+#Bias statistics are sorted by bias and threshold
+for (bsum in 1:4) {
+  tempb <- bias[bsum]
+  tempsummary <- datasummary[which(datasummary$Bias == tempb),]
+  for (tsum in 1:3) {
+    tempt <- threshold[tsum]
+    tempsummary2 <- tempsummary[which(tempsummary$Threshold == tempt),]
+    overallsummary <- add_row(overallsummary, 
+                              Bias = tempb,
+                              Threshold = tempt,
+                              Clust_Number = sum(tempsummary2$Clust_Number),
+                              Clust_Sz_Max = max(tempsummary2$Clust_Sz_Max),
+                              Clustered_genes = sum(tempsummary2$Clustered_genes))
+  }
+}
+
+#Overall statistics are sorted by threshold
+for (tsum2 in 1:3) {
+  allb <- "All"
+  tempt2 <- threshold[tsum2]
+  tempsummary3 <- datasummary[which(datasummary$Threshold == tempt2),]
+  overallsummary <- add_row(overallsummary, 
+                            Bias = allb,
+                            Threshold = tempt2,
+                            Clust_Number = sum(tempsummary3$Clust_Number),
+                            Clust_Sz_Max = max(tempsummary3$Clust_Sz_Max),
+                            Clustered_genes = sum(tempsummary3$Clustered_genes))
+}
+```
+
+
+## 3. Generate Output
+
+```{r dataframe_to_excel}
+write.xlsx(datasummary, summaryFile, sheetName = "overview", 
+           col.names = TRUE, row.names = FALSE, append = FALSE, password = NULL)
+write.xlsx(ClusterSizes, summaryFile, sheetName = "clusterSizeCount", 
+           col.names = TRUE, row.names = FALSE, append = TRUE, password = NULL)
+write.xlsx(overallsummary, summaryFile, sheetName = "wholegenome", 
+           col.names = TRUE, row.names = FALSE, append = TRUE, password = NULL)
+
+for(thresh in 1:3) {
+  if (thresh == 1) {
+    write.xlsx(clusterCompositionList[[thresh]], clusterCompositionFile, paste("threshold_", threshold[thresh], sep = ""),
+               col.names = TRUE, row.names = FALSE, append = FALSE, password = NULL)
+  } else {
+    write.xlsx(clusterCompositionList[[thresh]], clusterCompositionFile, paste("threshold_", threshold[thresh], sep = ""),
+               col.names = TRUE, row.names = FALSE, append = TRUE, password = NULL)
+  }
+}
+```
+
+
+```{r program_runtime_end}
+#Check time it takes to run code
+end_time <- Sys.time()
+print(end_time - start_time)
+```
+
