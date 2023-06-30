@@ -1,0 +1,115 @@
+---
+title: "Sim_WholeChromosomeScale"
+author: "Ashlyn Kimura"
+date: "6/23/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Goal
+
+Test for non-random patterns of gene clustering at the whole chromosome scale.
+
+## 0. Load packages and Data
+
+```{r load_packages}
+library(readxl)   #read input excel file
+library(tibble)   #add rows to dataframe and keep data types
+library(xlsx)     #write output excel files
+```
+
+```{r global_variables}
+#Project specific global variables for analysis
+bias <- c("L", "P", "M", "F")
+simulations <- 100000
+
+#set.seed for reproducibility
+set.seed(42)
+
+#Name output file
+outputFile <- gsub(" ", "", paste("SimPermuteAll_", simulations, ".csv"))
+```
+
+```{r load_data}
+#load in the data for all genes and order by element
+#Gene input information 
+  #Rank: original order of genes
+  #Element: chromosome 
+  #Chromosome: chromosome name
+  #Type: gene type
+  #Feature: gene name
+  #Bias: gene expression bias 
+allchrdata <- read_excel("monarchdata.xlsx", sheet = 2, range = "A5:F14690")
+allchrdata <- allchrdata[order(allchrdata$Element),]
+
+#get an ordered list of all the chromosome names
+chrlist <- unique(allchrdata$Chromosome)
+```
+
+## 1. Set up Output Summary and generate observed data summary
+
+```{r output_headers}
+#initialize the output data frame and generate the headers
+results <- data.frame()
+
+results <- rbind(results, c("", rep(chrlist, each = 4)))
+results <- rbind(results, c("", rep(unique(allchrdata$Element), each = 4)))
+results <- rbind(results, c("", rep(bias, times = 31)))
+```
+
+```{r observed_counts}
+#generate the observed gene counts and add them to the output data frame
+obs_counts <- c("observed")
+
+for (chr in chrlist) {
+  obs_counts <- c(obs_counts, c(sum((subset(allchrdata, Chromosome == chr))$Bias == "L")))
+  obs_counts <- c(obs_counts, c(sum((subset(allchrdata, Chromosome == chr))$Bias == "P")))
+  obs_counts <- c(obs_counts, c(sum((subset(allchrdata, Chromosome == chr))$Bias == "M")))
+  obs_counts <- c(obs_counts, c(sum((subset(allchrdata, Chromosome == chr))$Bias == "F")))
+}
+
+results <- rbind(results, obs_counts)
+```
+
+## 2. Run simulations
+
+```{r simulations}
+#keep track of simulation runtime
+sim_steps <- seq(0, simulations, simulations/20)
+start_time <- Sys.time()
+
+for (sim in 1:simulations) {
+  #for each simulation generate a randomly ordered data set
+  simallchrdata <- allchrdata[sample(nrow(allchrdata)), ]
+  simallchrdata$simChromosome <- allchrdata$Chromosome
+  
+  #generate the observed gene counts and add them to the output data frame
+  sim_counts <- c(sim)
+  
+  for (chr in chrlist) {
+  sim_counts <- c(sim_counts, c(sum((subset(simallchrdata, simChromosome == chr))$Bias == "L")))
+  sim_counts <- c(sim_counts, c(sum((subset(simallchrdata, simChromosome == chr))$Bias == "P")))
+  sim_counts <- c(sim_counts, c(sum((subset(simallchrdata, simChromosome == chr))$Bias == "M")))
+  sim_counts <- c(sim_counts, c(sum((subset(simallchrdata, simChromosome == chr))$Bias == "F")))
+  }
+  
+  results <- rbind(results, sim_counts)
+  
+  #Give a progress report if relevant
+  if (sim %in% sim_steps) {
+    current_time <- Sys.time()
+    percentage <- ((sim/simulations)*100)
+    print(paste(percentage, "Percent Completed"))
+    print(current_time - start_time)
+  }
+}
+```
+
+## 3. Generate Output
+
+```{r output}
+write.table(results, file = outputFile, sep = ",", row.names = FALSE, col.names = FALSE)
+```
