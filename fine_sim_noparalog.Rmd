@@ -1,7 +1,7 @@
 ---
 title: "SimClusterParalogs"
 author: "Ashlyn Kimura"
-date: "5/25/2023"
+date: "6/30/2023"
 output: html_document
 ---
 
@@ -31,7 +31,7 @@ start_time <- Sys.time()
 #Project specific global variables for analysis
 bias <- c("L", "P", "M", "F")
 threshold <- c(1, 5, 10)
-simulations <- 10000
+simulations <- 100000
 
 #set.seed for reproducibility
 set.seed(42)
