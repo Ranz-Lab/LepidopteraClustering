@@ -1,8 +1,8 @@
 ---
 title: "Sim_WholeChromosomeScale"
-author: "Ashlyn Kimura"
+author: "Ranz Lab 2023"
 date: "6/23/2023"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
