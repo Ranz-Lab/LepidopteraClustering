@@ -2,7 +2,7 @@
 title: "Sim_WholeChromosomeScale_NoNA"
 author: "Ranz Lab 2023"
 date: "9/25/2023"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
